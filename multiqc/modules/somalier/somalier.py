@@ -8,7 +8,10 @@ import logging
 import json
 
 import random
+from collections import defaultdict
+from math import isnan, isinf
 from multiqc import config
+from multiqc.plots import heatmap
 from multiqc.plots import scatter
 from multiqc.modules.base_module import BaseMultiqcModule
 
@@ -40,11 +43,11 @@ class MultiqcModule(BaseMultiqcModule):
             if parsed_data is not None:
                 for s_name in parsed_data:
                     s_name = self.clean_s_name(s_name, f['root'])
-                    try:
-                        self.somalier_data[s_name].update(parsed_data[s_name])
-                    except KeyError:
-                        self.somalier_data[s_name] = parsed_data[s_name]
-        # parse somalier CSV files
+                    if s_name in self.somalier_data.keys():
+                            log.debug("Duplicate sample name found! Overwriting: {}".format(s_name))
+                    self.add_data_source(f, s_name)
+                    self.somalier_data[s_name] = parsed_data[s_name]
+        # parse somalier CSV files # TODO: CSV or TSV?
         for pattern in ['pairs']:
             sp_key = 'somalier/{}'.format(pattern)
             for f in self.find_log_files(sp_key):
@@ -55,10 +58,10 @@ class MultiqcModule(BaseMultiqcModule):
                 if parsed_data is not None:
                     for s_name in parsed_data:
                         s_name = self.clean_s_name(s_name, f['root'])
-                        try:
-                            self.somalier_data[s_name].update(parsed_data[s_name])
-                        except KeyError:
-                            self.somalier_data[s_name] = parsed_data[s_name]
+                        if s_name in self.somalier_data.keys():
+                            log.debug("Duplicate sample name found! Overwriting: {}".format(s_name))
+                        self.add_data_source(f, s_name)
+                        self.somalier_data[s_name] = parsed_data[s_name]
 
         # Filter to strip out ignored sample names
         self.somalier_data = self.ignore_samples(self.somalier_data)
@@ -76,6 +79,8 @@ class MultiqcModule(BaseMultiqcModule):
 
         # Relatedness plot
         self.somalier_relatedness_plot()
+
+        self.somalier_relatedness_heatmap_plot()
 
         # hetcheck plot
         self.somalier_het_check_plot()
@@ -111,7 +116,7 @@ class MultiqcModule(BaseMultiqcModule):
         headers = None
         s_name_idx = None
         for l in f['f'].splitlines():
-            s = l.lstrip('#').split(",")
+            s = l.lstrip('#').split("\t")
             if headers is None:
                 headers = s
                 try:
@@ -123,16 +128,21 @@ class MultiqcModule(BaseMultiqcModule):
                         log.warn("Could not find sample name in somalier output: {}".format(f['fn']))
                         return None
             else:
-                s_name = '-'.join([s[idx] for idx in s_name_idx])
+                s_name = '*'.join([s[idx] for idx in s_name_idx]) # TODO: not safe, but works
                 parsed_data[s_name] = dict()
                 for i, v in enumerate(s):
-                    if i not in s_name_idx:
+                    if i not in s_name_idx: #skip i=0,1, i.e. sample_a, sample_b
+                        if (isnan(float(v)) or isinf(float(v))):
+                            log.warn("Found Inf or NaN value. Overwriting with -2.") # TODO: find better solution
+                            v = -2
                         try:
                             # add the pattern as a suffix to key
                             parsed_data[s_name][headers[i] + "_" + pattern] = float(v)
                         except ValueError:
                             # add the pattern as a suffix to key
                             parsed_data[s_name][headers[i] + "_" + pattern] = v
+                            
+
         if len(parsed_data) == 0:
             return None
         return parsed_data
@@ -182,6 +192,58 @@ class MultiqcModule(BaseMultiqcModule):
                 <span style="color: #FAA051;">0.25 - 0.5</span>,
                 <span style="color: #2B9F2B;">greather than 0.5</span>.""",
                 plot = scatter.plot(data, pconfig)
+            )
+
+    def somalier_relatedness_heatmap_plot(self):
+        # inspiration: MultiQC/modules/vcftools/relatedness2.py
+        
+        data = []
+        labels = set()
+        rels = defaultdict(dict)
+        for s_name, d in self.somalier_data.items():
+            if 'relatedness_pairs' in d:
+                a, b = s_name.split('*')
+                labels.add(a)
+                labels.add(b)
+                rels[a][b] = float(d["relatedness_pairs"])
+
+        # impose alphabetical order and avoid json serialisation errors in utils.report
+        labels = sorted(labels)
+        
+        for x in labels:
+            line = []
+            for y in labels:
+                try: # 
+                    line.append(rels[x][y])
+                except KeyError:
+                    try:
+                        line.append(rels[y][x])
+                    except KeyError:
+                        try:
+                            line.append(rels[x][x])
+                        except KeyError:
+                            line.append(-2)
+            data.append(line)
+
+        pconfig = {
+            'id': 'somalier_relatedness_heatmap_plot',
+            'title': 'somalier: Relatedness Heatmap Plot',
+            'xlab': 'Sample A',
+            'ylab': 'Sample B',
+        }
+
+        if len(data) > 0:
+            self.add_section (
+                name = 'Relatedness Heatmap',
+                anchor = 'somalier-relatedness-heatmap-plot',
+                description = """Heatmap displaying relatedness of sample pairs.""",
+                # plot = scatter.plot(data, pconfig)
+                plot = heatmap.plot(
+                    data = data,
+                    xcats = labels,
+                    ycats = labels,
+                    pconfig = pconfig,
+                )
             )
 
     def somalier_het_check_plot(self):
