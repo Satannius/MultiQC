@@ -5,12 +5,13 @@
 from __future__ import print_function
 from collections import OrderedDict
 import logging
-import json
+import csv
 
 import random
 from collections import defaultdict
 from math import isnan, isinf
 from multiqc import config
+from multiqc.plots import bargraph
 from multiqc.plots import heatmap
 from multiqc.plots import scatter
 from multiqc.modules.base_module import BaseMultiqcModule
@@ -33,6 +34,7 @@ class MultiqcModule(BaseMultiqcModule):
 
         # Find and load any somalier reports
         self.somalier_data = dict()
+        self.somalier_ancestry_cats = list()
         self.somalier_length_counts = dict()
         self.somalier_length_exp = dict()
         self.somalier_length_obsexp = dict()
@@ -52,9 +54,9 @@ class MultiqcModule(BaseMultiqcModule):
             sp_key = 'somalier/{}'.format(pattern)
             for f in self.find_log_files(sp_key):
                 # some columns have the same name in het_check and sex_check (median_depth)
-                # pass pattern to parse_somalier_csv so the column names can include pattern to
+                # pass pattern to parse_somalier_pairs_csv so the column names can include pattern to
                 # avoid being overwritten
-                parsed_data = self.parse_somalier_csv(f, pattern)
+                parsed_data = self.parse_somalier_pairs_csv(f, pattern)
                 if parsed_data is not None:
                     for s_name in parsed_data:
                         s_name = self.clean_s_name(s_name, f['root'])
@@ -62,6 +64,14 @@ class MultiqcModule(BaseMultiqcModule):
                             log.debug("Duplicate sample name found! Overwriting: {}".format(s_name))
                         self.add_data_source(f, s_name)
                         self.somalier_data[s_name] = parsed_data[s_name]
+
+        # parse somalier ancestry files
+        for f in self.find_log_files('somalier/ancestry_prediction', filehandles=True):
+            self.parse_somalier_ancestry_prediction(f)
+            
+        # parse somalier pc files
+        for f in self.find_log_files('somalier/ancestry_pcs', filehandles=True):
+            self.parse_somalier_ancestry_pcs(f)
 
         # Filter to strip out ignored sample names
         self.somalier_data = self.ignore_samples(self.somalier_data)
@@ -87,6 +97,11 @@ class MultiqcModule(BaseMultiqcModule):
 
         self.somalier_sex_check_plot()
 
+        # ancestry plots
+        self.somalier_ancestry_barplot()
+
+        self.somalier_ancestry_pca_plot()
+
     def parse_somalier_summary(self, f):
         """ Go through log file looking for somalier output """
         parsed_data = dict()
@@ -110,7 +125,7 @@ class MultiqcModule(BaseMultiqcModule):
             return None
         return parsed_data
 
-    def parse_somalier_csv(self, f, pattern):
+    def parse_somalier_pairs_csv(self, f, pattern):
         """ Parse csv output from somalier """
         parsed_data = dict()
         headers = None
@@ -133,7 +148,7 @@ class MultiqcModule(BaseMultiqcModule):
                 for i, v in enumerate(s):
                     if i not in s_name_idx: #skip i=0,1, i.e. sample_a, sample_b
                         if (isnan(float(v)) or isinf(float(v))):
-                            log.warn("Found Inf or NaN value. Overwriting with -2.") # TODO: find better solution
+                            log.info("Found Inf or NaN value. Overwriting with -2.") # TODO: find better solution
                             v = -2
                         try:
                             # add the pattern as a suffix to key
@@ -146,6 +161,69 @@ class MultiqcModule(BaseMultiqcModule):
         if len(parsed_data) == 0:
             return None
         return parsed_data
+
+    def parse_somalier_ancestry_prediction(self, f):
+        parsed_data = dict()
+        reader = csv.DictReader(f['f'])
+        idx = "#sample"
+
+        if (reader.fieldnames is not None):
+            for c in reader.fieldnames:
+                if c != idx:
+                    self.somalier_ancestry_cats.append(c)
+            for row in reader:
+                parsed_data[row[idx]] = {k:v for k,v in row.items() if k != idx}
+
+            if len(parsed_data) > 0:
+                for s_name in parsed_data:
+                    s_name = self.clean_s_name(s_name, f['root'])
+                    if s_name in self.somalier_data.keys():
+                        intersect_keys = parsed_data[s_name].keys() & self.somalier_data.keys()
+                        if len(intersect_keys) > 0:
+                            log.debug("Duplicate sample name found! Overwriting: {} : {}".format(s_name, intersect_keys))
+                    self.add_data_source(f, s_name)
+                    try:
+                        self.somalier_data[s_name].update(parsed_data[s_name])
+                    except KeyError:
+                        self.somalier_data[s_name] = parsed_data[s_name]
+        else:
+            log.warn("Detected empty file: {}".format(f['fn']))
+
+    def parse_somalier_ancestry_pcs(self, f):
+        bg_pc1 = []
+        bg_pc2 = []
+        bg_ancestry = []
+        parsed_data = dict()
+
+        reader = csv.DictReader(f['f'])
+        idx = "ancestry"
+        
+        if (reader.fieldnames is not None):
+            for row in reader:
+                if (row[idx] in self.somalier_ancestry_cats):
+                    bg_pc1.append(float(row["PC1"]))
+                    bg_pc2.append(float(row["PC2"]))
+                    bg_ancestry.append(row["ancestry"])
+                else:
+                    d = {k:float(v) for k,v in row.items() if k != idx}
+                    parsed_data[row[idx]] = d
+            
+            if len(parsed_data) > 0:
+                self.somalier_data["background_pcs"] = {"PC1":bg_pc1, "PC2":bg_pc2, "ancestry":bg_ancestry}
+
+                for s_name in parsed_data:
+                    s_name = self.clean_s_name(s_name, f['root'])
+                    if s_name in self.somalier_data.keys():
+                        intersect_keys = parsed_data[s_name].keys() & self.somalier_data.keys()
+                        if len(intersect_keys) > 0:
+                            log.debug("Duplicate sample name found! Overwriting: {} : {}".format(s_name, intersect_keys))
+                    self.add_data_source(f, s_name)
+                    try:
+                        self.somalier_data[s_name].update(parsed_data[s_name])
+                    except KeyError:
+                        self.somalier_data[s_name] = parsed_data[s_name]
+        else:
+            log.warn("Detected empty file: {}".format(f['fn']))
 
     def somalier_general_stats_table(self):
         """ Take the parsed stats from the somalier report and add it to the
@@ -245,7 +323,7 @@ class MultiqcModule(BaseMultiqcModule):
                     pconfig = pconfig,
                 )
             )
-
+    
     def somalier_het_check_plot(self):
         """plot the het_check scatter plot"""
         # empty dictionary to add sample names, and dictionary of values
@@ -267,15 +345,16 @@ class MultiqcModule(BaseMultiqcModule):
             'xlab': 'mean depth',
             'ylab': 'standard deviation of allele-balance',
         }
-
-        self.add_section (
-            name = 'Het Check',
-            description = "Std devation of heterozygous allele balance against mean depth.",
-            helptext = """A high standard deviation in allele balance suggests contamination.
-            """,
-            anchor = 'somalier-hetcheck-plot',
-            plot = scatter.plot(data, pconfig)
-        )
+        
+        if len(data) > 0:
+            self.add_section (
+                name = 'Het Check',
+                description = "Std devation of heterozygous allele balance against mean depth.",
+                helptext = """A high standard deviation in allele balance suggests contamination.
+                """,
+                anchor = 'somalier-hetcheck-plot',
+                plot = scatter.plot(data, pconfig)
+            )
 
     def somalier_sex_check_plot(self):
         data = {}
@@ -295,13 +374,96 @@ class MultiqcModule(BaseMultiqcModule):
             'ylab': 'Scaled mean depth on X',
             'categories': ["Female", "Male", "Unknown"]
         }
+        if len(data) > 0:
+            self.add_section(
+                name = 'Sex Check',
+                description = "Predicted sex against scaled depth on X",
+                helptext = """
+                Higher values of depth, low values suggest male.
+                """,
+                anchor='somalier-sexcheck-plot',
+                plot=scatter.plot(data, pconfig)
+            )
 
-        self.add_section(
-            name = 'Sex Check',
-            description = "Predicted sex against scaled depth on X",
-            helptext = """
-            Higher values of depth, low values suggest male.
-            """,
-            anchor='somalier-sexcheck-plot',
-            plot=scatter.plot(data, pconfig)
-        )
+    def somalier_ancestry_barplot(self):
+        data = dict()
+        
+        for s_name, d in self.somalier_data.items():
+            # ensure that only relevant items are added, 
+            # i.e. only ancestry category values
+            data[s_name] = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
+
+        pconfig = {
+            'id' : 'somalier_ancestry_barplot',
+            'cpswitch_c_active' : False,
+            'title' : 'somalier: Ancestry Prediction, Barplot',
+            'ylab' : 'Predicted Ancestry'
+        }
+
+        if len(data) > 0:
+            self.add_section(
+                name = "Ancestry Barplot",
+                description = "Predicted ancestry of samples.",
+                helptext = """Only non-zero prediction categories are shown, e.g.
+                if SAS ancestry prediction is 0 for all samples, the category is 
+                not shown""",
+                anchor = "somalier-ancestry-barplot",
+                plot = bargraph.plot(data=data, pconfig=pconfig)
+            )
+
+    def somalier_ancestry_pca_plot(self):
+        ancestry_colors = {
+            'SAS': 'rgb(68,1,81,1)',
+            'EAS': 'rgb(59,81,139,1)',
+            'AMR': 'rgb(33,144,141,1)',
+            'AFR': 'rgb(92,200,99,1)',
+            'EUR': 'rgb(253,231,37,1)'
+        }
+        background_ancestry_colors = {
+            'SAS': 'rgb(68,1,81,0.1)',
+            'EAS': 'rgb(59,81,139,0.1)',
+            'AMR': 'rgb(33,144,141,0.1)',
+            'AFR': 'rgb(92,200,99,0.1)',
+            'EUR': 'rgb(253,231,37,0.1)'
+        }
+        default_color = '#000000'
+        default_background_color = 'rgb(211,211,211,0.05)'
+        data = OrderedDict()
+
+        d = self.somalier_data.pop("background_pcs", {})
+        if d:
+            background = [{'x': pc1,
+                        'y': pc2,
+                        'color': default_background_color,
+                        'name': ancestry,
+                        'marker_size': 1}
+                        for pc1, pc2, ancestry in zip(d['PC1'], d['PC2'], d['ancestry'])]
+            data["background"] = background
+        
+        for s_name, d in self.somalier_data.items():
+            if 'PC1' in d and 'PC2' in d:
+                data[s_name] = {
+                    'x': d['PC1'],
+                    'y': d['PC2'],
+                    # 'color': ancestry_colors.get(d['ancestry-prediction'], default_color)
+                    'color' : '#000000'
+                }
+        pconfig = {
+            'id' : 'somalier_ancestry_pca_plot',
+            'title' : 'somalier: Ancestry Prediction, PCA',
+            'xlab': 'PC1',
+            'ylab': 'PC2',
+            'marker_size': 5,
+            'marker_line_width': 0
+        }
+
+        if len(data) > 0:
+            self.add_section(
+                name = "Ancestry PCA Plot",
+                description = "TBA",
+                helptext = """TBA""",
+                anchor = "somalier-ancestry-pca-plot",
+                plot = scatter.plot(data, pconfig)
+            )
+
+

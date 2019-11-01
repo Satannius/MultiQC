@@ -371,6 +371,10 @@ peddy/sex_check:
     fn: '*.sex_check.csv'
 peddy/background_pca:
     fn: '*.background_pca.json'
+somalier/ancestry_pcs:
+    fn: '*.ancestry_pcs.csv'
+somalier/ancestry_prediction:
+    fn: '*.ancestry_prediction.csv'
 somalier/samples:
     fn: '*.samples.tsv'
 somalier/pairs:
