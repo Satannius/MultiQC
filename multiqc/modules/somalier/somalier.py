@@ -175,7 +175,11 @@ class MultiqcModule(BaseMultiqcModule):
                     self.somalier_ancestry_cats.append(c)
             # parse 
             for row in reader:
-                parsed_data[row[idx]] = {k:v for k,v in row.items() if k != idx}
+                d = {k:v for k,v in row.items() if k != idx}
+                key_ancestry = max(d, key=d.get)
+                d["ancestry"] = key_ancestry 
+                d["p_ancestry"] = d[key_ancestry]
+                parsed_data[row[idx]] = d
 
             if len(parsed_data) > 0:
                 for s_name in parsed_data:
@@ -236,11 +240,32 @@ class MultiqcModule(BaseMultiqcModule):
 
         headers = OrderedDict()
         headers['X_het'] = {
-            'title': 'heterozygous variants on X chromosome',
+            'title': 'HetVar X',
+            'description': 'Heterozygous variants on X chromosome',
         }
         headers['X_hom_alt'] = {
-            'title': 'homozygous alternate variants on X chromosome',
+            'title': 'HomAltVar X',
+            'description': 'Homozygous alternate variants on X chromosome',
         }
+        headers['X_depth_mean'] = {
+            'title': '\u03BC depth X',
+            'description': 'Scaled mean depth on X',
+            'scale': 'RdYlGn'
+        }
+        headers['pedigree_sex'] = {
+            'title': 'Sex'
+        }
+        headers['ancestry'] = {
+            'title': 'Ancestry'
+        }
+        headers['p_ancestry'] = {
+            'title': 'P(Ancestry)',
+            'max': 1,
+            'min': 0,
+            'scale': "RdYlGn",
+            'format': '{:,.2f}'
+        }
+
         self.general_stats_addcols(self.somalier_data, headers)
 
     def somalier_relatedness_plot(self):
