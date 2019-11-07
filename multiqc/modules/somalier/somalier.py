@@ -14,6 +14,7 @@ from multiqc import config
 from multiqc.plots import bargraph
 from multiqc.plots import heatmap
 from multiqc.plots import scatter
+from multiqc.utils import mqc_colour
 from multiqc.modules.base_module import BaseMultiqcModule
 
 # Initialise the logger
@@ -168,9 +169,11 @@ class MultiqcModule(BaseMultiqcModule):
         idx = "#sample"
 
         if (reader.fieldnames is not None):
+            # get ancestry categories from header fieldnames
             for c in reader.fieldnames:
                 if c != idx:
                     self.somalier_ancestry_cats.append(c)
+            # parse 
             for row in reader:
                 parsed_data[row[idx]] = {k:v for k,v in row.items() if k != idx}
 
@@ -200,10 +203,12 @@ class MultiqcModule(BaseMultiqcModule):
         
         if (reader.fieldnames is not None):
             for row in reader:
+                # if index indicates row is background
                 if (row[idx] in self.somalier_ancestry_cats):
                     bg_pc1.append(float(row["PC1"]))
                     bg_pc2.append(float(row["PC2"]))
                     bg_ancestry.append(row["ancestry"])
+                # else row is sample
                 else:
                     d = {k:float(v) for k,v in row.items() if k != idx}
                     parsed_data[row[idx]] = d
@@ -387,15 +392,28 @@ class MultiqcModule(BaseMultiqcModule):
 
     def somalier_ancestry_barplot(self):
         data = dict()
-        
+        c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
+        cats = OrderedDict()
+        anc_cats = self.somalier_ancestry_cats
+        for i in range(len(anc_cats)):
+            c = anc_cats[i]
+            if i < (len(c_scale) - 1):
+                col = c_scale[i]
+            else:
+                # default col if more cats than cols
+                col = 'rgb(211,211,211,0.01)'
+            cats[c] = {'name' : c, 'color' : col}
+
         for s_name, d in self.somalier_data.items():
             # ensure that only relevant items are added, 
             # i.e. only ancestry category values
+            ls = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
             data[s_name] = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
 
         pconfig = {
             'id' : 'somalier_ancestry_barplot',
             'cpswitch_c_active' : False,
+            'hide_zero_cats' : False,
             'title' : 'somalier: Ancestry Prediction, Barplot',
             'ylab' : 'Predicted Ancestry'
         }
@@ -408,46 +426,46 @@ class MultiqcModule(BaseMultiqcModule):
                 if SAS ancestry prediction is 0 for all samples, the category is 
                 not shown""",
                 anchor = "somalier-ancestry-barplot",
-                plot = bargraph.plot(data=data, pconfig=pconfig)
+                plot = bargraph.plot(data=data, cats=cats, pconfig=pconfig)
             )
 
     def somalier_ancestry_pca_plot(self):
-        ancestry_colors = {
-            'SAS': 'rgb(68,1,81,1)',
-            'EAS': 'rgb(59,81,139,1)',
-            'AMR': 'rgb(33,144,141,1)',
-            'AFR': 'rgb(92,200,99,1)',
-            'EUR': 'rgb(253,231,37,1)'
-        }
-        background_ancestry_colors = {
-            'SAS': 'rgb(68,1,81,0.1)',
-            'EAS': 'rgb(59,81,139,0.1)',
-            'AMR': 'rgb(33,144,141,0.1)',
-            'AFR': 'rgb(92,200,99,0.1)',
-            'EUR': 'rgb(253,231,37,0.1)'
-        }
-        default_color = '#000000'
-        default_background_color = 'rgb(211,211,211,0.05)'
-        data = OrderedDict()
-
-        d = self.somalier_data.pop("background_pcs", {})
-        if d:
-            background = [{'x': pc1,
-                        'y': pc2,
-                        'color': default_background_color,
-                        'name': ancestry,
-                        'marker_size': 1}
-                        for pc1, pc2, ancestry in zip(d['PC1'], d['PC2'], d['ancestry'])]
-            data["background"] = background
+        # generate color scale to match the number of categories
         
+        c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
+        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
+        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
+        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
+        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
+        # c_scale = [rgb_converter(c) for c in c_scale]
+        
+        cats = self.somalier_ancestry_cats
+        ancestry_colors = dict(zip(cats, c_scale[:len(cats)]))
+
+        default_background_color = 'rgb(211,211,211,0.01)'
+        data = OrderedDict()
+      
+        # cycle over samples and add PC coordinates to data dict
         for s_name, d in self.somalier_data.items():
             if 'PC1' in d and 'PC2' in d:
                 data[s_name] = {
                     'x': d['PC1'],
                     'y': d['PC2'],
-                    # 'color': ancestry_colors.get(d['ancestry-prediction'], default_color)
-                    'color' : '#000000'
+                    'color' : "rgba(0, 0, 0, 1)",
                 }
+
+        # add background
+        # N.B. this must be done after samples to have samples on top
+        d = self.somalier_data.pop("background_pcs", {})
+        if d:
+            background = [{'x': pc1,
+                        'y': pc2,
+                        'color': ancestry_colors.get(ancestry, default_background_color),
+                        'name': ancestry}
+                        for pc1, pc2, ancestry in zip(d['PC1'], d['PC2'], d['ancestry'])]
+            data["background"] = background
+
+        # generate section and plot
         pconfig = {
             'id' : 'somalier_ancestry_pca_plot',
             'title' : 'somalier: Ancestry Prediction, PCA',
@@ -460,8 +478,12 @@ class MultiqcModule(BaseMultiqcModule):
         if len(data) > 0:
             self.add_section(
                 name = "Ancestry PCA Plot",
-                description = "TBA",
-                helptext = """TBA""",
+                description = "Principal components of samples against background PCs.",
+                helptext = """Sample PCs are plotted against background PCs from the
+                backgorund data supplied to somalier.
+                Color indicates predicted ancestry of sample. Data points in close 
+                proximity are predicted to be of similar ancestry. Consider whether
+                the samples cluster as expected.""",
                 anchor = "somalier-ancestry-pca-plot",
                 plot = scatter.plot(data, pconfig)
             )
