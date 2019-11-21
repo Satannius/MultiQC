@@ -67,12 +67,8 @@ class MultiqcModule(BaseMultiqcModule):
                         self.somalier_data[s_name] = parsed_data[s_name]
 
         # parse somalier ancestry files
-        for f in self.find_log_files('somalier/ancestry_prediction', filehandles=True):
-            self.parse_somalier_ancestry_prediction(f)
-            
-        # parse somalier pc files
-        for f in self.find_log_files('somalier/ancestry_pcs', filehandles=True):
-            self.parse_somalier_ancestry_pcs(f)
+        for f in self.find_log_files('somalier/somalier_ancestry', filehandles=True):
+            self.parse_somalier_ancestry(f)
 
         # Filter to strip out ignored sample names
         self.somalier_data = self.ignore_samples(self.somalier_data)
@@ -163,63 +159,61 @@ class MultiqcModule(BaseMultiqcModule):
             return None
         return parsed_data
 
-    def parse_somalier_ancestry_prediction(self, f):
+    def parse_somalier_ancestry(self, f):
+        # dict for parsed data, ancestry prediction probabilities and PCs
         parsed_data = dict()
-        reader = csv.DictReader(f['f'])
-        idx = "#sample"
 
-        if (reader.fieldnames is not None):
-            # get ancestry categories from header fieldnames
-            for c in reader.fieldnames:
-                if c != idx:
-                    self.somalier_ancestry_cats.append(c)
-            # parse 
-            for row in reader:
-                d = {k:v for k,v in row.items() if k != idx}
-                key_ancestry = max(d, key=d.get)
-                d["ancestry"] = key_ancestry 
-                d["p_ancestry"] = d[key_ancestry]
-                parsed_data[row[idx]] = d
-
-            if len(parsed_data) > 0:
-                for s_name in parsed_data:
-                    s_name = self.clean_s_name(s_name, f['root'])
-                    if s_name in self.somalier_data.keys():
-                        intersect_keys = parsed_data[s_name].keys() & self.somalier_data.keys()
-                        if len(intersect_keys) > 0:
-                            log.debug("Duplicate sample name found! Overwriting: {} : {}".format(s_name, intersect_keys))
-                    self.add_data_source(f, s_name)
-                    try:
-                        self.somalier_data[s_name].update(parsed_data[s_name])
-                    except KeyError:
-                        self.somalier_data[s_name] = parsed_data[s_name]
-        else:
-            log.warn("Detected empty file: {}".format(f['fn']))
-
-    def parse_somalier_ancestry_pcs(self, f):
+        # list for background principal components and associated ancestry
         bg_pc1 = []
         bg_pc2 = []
         bg_ancestry = []
-        parsed_data = dict()
 
-        reader = csv.DictReader(f['f'])
-        idx = "ancestry"
-        
+        reader = csv.DictReader(f['f'], dialect="excel-tab")
+        idx = "#sample_id"
+
+        # check file not empty, else parse file
         if (reader.fieldnames is not None):
+            # get ancestry categories from header fieldnames
+            for c in reader.fieldnames:
+                # use _prob substring to identify ancestry cats and add to object
+                if "_prob" in c:
+                    self.somalier_ancestry_cats.append(c.replace("_prob", ''))
+            
+            # parse rows of tsv file
             for row in reader:
-                # if index indicates row is background
-                if (row[idx] in self.somalier_ancestry_cats):
+                # only background has given_ancestry
+                # i.e. row is sample, not background
+                if len(row["given_ancestry"]) == 0:
+                    d = {}
+                    for k, v in row.items():
+                        # add ancestry prediction to d
+                        if "_prob" in k and v is not None:
+                            d[k.replace("_prob",'')] = float(v)
+                        # add principal component to d
+                        elif "PC" in k and v is not None:
+                            d[k] = float(v)
+                        # else: do nothing
+                    
+                    # extract predicted ancestry and probability
+                    # for general stats table
+                    d["ancestry"] = row["predicted_ancestry"]
+                    d["p_ancestry"] = d[d["ancestry"]]
+
+                    parsed_data[row[idx]] = d
+                else: # row is background, parse PC's
                     bg_pc1.append(float(row["PC1"]))
                     bg_pc2.append(float(row["PC2"]))
-                    bg_ancestry.append(row["ancestry"])
-                # else row is sample
-                else:
-                    d = {k:float(v) for k,v in row.items() if k != idx}
-                    parsed_data[row[idx]] = d
-            
-            if len(parsed_data) > 0:
-                self.somalier_data["background_pcs"] = {"PC1":bg_pc1, "PC2":bg_pc2, "ancestry":bg_ancestry}
+                    bg_ancestry.append(row["given_ancestry"])
+                    # background pc's are added to parsed_data later
 
+            # check that something was parsed:
+            if len(parsed_data) > 0:
+                # add background principal components
+                self.somalier_data["background_pcs"] = {"PC1":bg_pc1, "PC2":bg_pc2, "ancestry":bg_ancestry}
+                
+                # cycle over keys, i.e. sample names
+                # safely add new data to object data
+                # warn when overwriting
                 for s_name in parsed_data:
                     s_name = self.clean_s_name(s_name, f['root'])
                     if s_name in self.somalier_data.keys():
