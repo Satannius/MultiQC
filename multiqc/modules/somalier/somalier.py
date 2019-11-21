@@ -140,7 +140,7 @@ class MultiqcModule(BaseMultiqcModule):
                         log.warn("Could not find sample name in somalier output: {}".format(f['fn']))
                         return None
             else:
-                s_name = '*'.join([s[idx] for idx in s_name_idx]) # TODO: not safe, but works
+                s_name = '*'.join([s[idx] for idx in s_name_idx]) # not safe to hard code, but works
                 parsed_data[s_name] = dict()
                 for i, v in enumerate(s):
                     if i not in s_name_idx: #skip i=0,1, i.e. sample_a, sample_b
@@ -229,10 +229,13 @@ class MultiqcModule(BaseMultiqcModule):
             log.warn("Detected empty file: {}".format(f['fn']))
 
     def somalier_general_stats_table(self):
-        """ Take the parsed stats from the somalier report and add it to the
+        """Add data to general stats table
+        
+        Take the parsed stats from the somalier report and add it to the
         basic stats table at the top of the report """
 
         headers = OrderedDict()
+        
         headers['X_het'] = {
             'title': 'HetVar X',
             'description': 'Heterozygous variants on X chromosome',
@@ -278,14 +281,14 @@ class MultiqcModule(BaseMultiqcModule):
                 else:
                     data[s_name]['color'] = 'rgba(43, 159, 43, 0.8)'
 
-        pconfig = {
-            'id': 'somalier_relatedness_plot',
-            'title': 'somalier: Relatedness Plot',
-            'xlab': 'IBS0 (no alleles shared)',
-            'ylab': 'IBS2 (both alleles shared)',
-        }
-
         if len(data) > 0:
+            pconfig = {
+                'id': 'somalier_relatedness_plot',
+                'title': 'somalier: Relatedness Plot',
+                'xlab': 'IBS0 (no alleles shared)',
+                'ylab': 'IBS2 (both alleles shared)',
+            }
+
             self.add_section (
                 name = 'Relatedness',
                 anchor = 'somalier-relatedness-plot',
@@ -327,14 +330,14 @@ class MultiqcModule(BaseMultiqcModule):
                             line.append(-2)
             data.append(line)
 
-        pconfig = {
-            'id': 'somalier_relatedness_heatmap_plot',
-            'title': 'somalier: Relatedness Heatmap Plot',
-            'xlab': 'Sample A',
-            'ylab': 'Sample B',
-        }
-
         if len(data) > 0:
+            pconfig = {
+                'id': 'somalier_relatedness_heatmap_plot',
+                'title': 'somalier: Relatedness Heatmap Plot',
+                'xlab': 'Sample A',
+                'ylab': 'Sample B',
+            }
+
             self.add_section (
                 name = 'Relatedness Heatmap',
                 anchor = 'somalier-relatedness-heatmap-plot',
@@ -363,14 +366,14 @@ class MultiqcModule(BaseMultiqcModule):
                     'y': d['ab_std']
                 }
 
-        pconfig = {
-            'id': 'somalier_het_check_plot',
-            'title': 'somalier: Het Check',
-            'xlab': 'mean depth',
-            'ylab': 'standard deviation of allele-balance',
-        }
-        
         if len(data) > 0:
+            pconfig = {
+                'id': 'somalier_het_check_plot',
+                'title': 'somalier: Het Check',
+                'xlab': 'mean depth',
+                'ylab': 'standard deviation of allele-balance',
+            }
+
             self.add_section (
                 name = 'Het Check',
                 description = "Std devation of heterozygous allele balance against mean depth.",
@@ -391,14 +394,15 @@ class MultiqcModule(BaseMultiqcModule):
                     'y': d["X_depth_mean"]
                 }
 
-        pconfig = {
-            'id': 'somalier_sex_check_plot',
-            'title': 'somalier: Sex Check',
-            'xlab': 'Sex From Ped',
-            'ylab': 'Scaled mean depth on X',
-            'categories': ["Female", "Male", "Unknown"]
-        }
         if len(data) > 0:
+            pconfig = {
+                'id': 'somalier_sex_check_plot',
+                'title': 'somalier: Sex Check',
+                'xlab': 'Sex From Ped',
+                'ylab': 'Scaled mean depth on X',
+                'categories': ["Female", "Male", "Unknown"]
+            }
+
             self.add_section(
                 name = 'Sex Check',
                 description = "Predicted sex against scaled depth on X",
@@ -414,6 +418,7 @@ class MultiqcModule(BaseMultiqcModule):
         c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
         cats = OrderedDict()
         anc_cats = self.somalier_ancestry_cats
+
         for i in range(len(anc_cats)):
             c = anc_cats[i]
             if i < (len(c_scale) - 1):
@@ -429,15 +434,15 @@ class MultiqcModule(BaseMultiqcModule):
             ls = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
             data[s_name] = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
 
-        pconfig = {
-            'id' : 'somalier_ancestry_barplot',
-            'cpswitch_c_active' : False,
-            'hide_zero_cats' : False,
-            'title' : 'somalier: Ancestry Prediction, Barplot',
-            'ylab' : 'Predicted Ancestry'
-        }
-
         if len(data) > 0:
+            pconfig = {
+                'id' : 'somalier_ancestry_barplot',
+                'cpswitch_c_active' : False,
+                'hide_zero_cats' : False,
+                'title' : 'somalier: Ancestry Prediction, Barplot',
+                'ylab' : 'Predicted Ancestry'
+            }
+
             self.add_section(
                 name = "Ancestry Barplot",
                 description = "Predicted ancestry of samples.",
@@ -449,19 +454,6 @@ class MultiqcModule(BaseMultiqcModule):
             )
 
     def somalier_ancestry_pca_plot(self):
-        # generate color scale to match the number of categories
-        
-        c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
-        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
-        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
-        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
-        # rgb_converter = lambda x: "rgb" + str((*tuple(tuple(int(x[i:i+2].lstrip('#'), 16) for i in (0, 2, 4))), 0.1))
-        # c_scale = [rgb_converter(c) for c in c_scale]
-        
-        cats = self.somalier_ancestry_cats
-        ancestry_colors = dict(zip(cats, c_scale[:len(cats)]))
-
-        default_background_color = 'rgb(211,211,211,0.01)'
         data = OrderedDict()
       
         # cycle over samples and add PC coordinates to data dict
@@ -477,6 +469,12 @@ class MultiqcModule(BaseMultiqcModule):
         # N.B. this must be done after samples to have samples on top
         d = self.somalier_data.pop("background_pcs", {})
         if d:
+            # generate color scale to match the number of categories
+            c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
+            cats = self.somalier_ancestry_cats
+            ancestry_colors = dict(zip(cats, c_scale[:len(cats)]))
+            default_background_color = 'rgb(211,211,211,0.01)'
+
             background = [{'x': pc1,
                         'y': pc2,
                         'color': ancestry_colors.get(ancestry, default_background_color),
@@ -485,16 +483,16 @@ class MultiqcModule(BaseMultiqcModule):
             data["background"] = background
 
         # generate section and plot
-        pconfig = {
-            'id' : 'somalier_ancestry_pca_plot',
-            'title' : 'somalier: Ancestry Prediction, PCA',
-            'xlab': 'PC1',
-            'ylab': 'PC2',
-            'marker_size': 5,
-            'marker_line_width': 0
-        }
-
         if len(data) > 0:
+            pconfig = {
+                'id' : 'somalier_ancestry_pca_plot',
+                'title' : 'somalier: Ancestry Prediction, PCA',
+                'xlab': 'PC1',
+                'ylab': 'PC2',
+                'marker_size': 5,
+                'marker_line_width': 0
+            }
+
             self.add_section(
                 name = "Ancestry PCA Plot",
                 description = "Principal components of samples against background PCs.",
