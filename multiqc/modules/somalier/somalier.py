@@ -445,10 +445,11 @@ class MultiqcModule(BaseMultiqcModule):
 
             self.add_section(
                 name = "Ancestry Barplot",
-                description = "Predicted ancestry of samples.",
-                helptext = """Only non-zero prediction categories are shown, e.g.
-                if SAS ancestry prediction is 0 for all samples, the category is 
-                not shown""",
+                description = "Predicted ancestries of samples.",
+                helptext = """Shows the percentwise predicted probability of each 
+                ancestry. A sample might contain traces of several ancestries.
+                If the number of samples is too high, the plot is rendered as a
+                non-interactive flat image.""",
                 anchor = "somalier-ancestry-barplot",
                 plot = bargraph.plot(data=data, cats=cats, pconfig=pconfig)
             )
