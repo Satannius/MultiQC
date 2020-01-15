@@ -431,8 +431,9 @@ class MultiqcModule(BaseMultiqcModule):
         for s_name, d in self.somalier_data.items():
             # ensure that only relevant items are added, 
             # i.e. only ancestry category values
-            ls = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
-            data[s_name] = {k:v for k,v in d.items() if k in self.somalier_ancestry_cats}
+            ls = {k:v for k,v in d.items() if (k in self.somalier_ancestry_cats) and (len(v) > 0)}
+            if len(ls) > 0: # only add dict, if it contains values
+                data[s_name] = ls
 
         if len(data) > 0:
             pconfig = {
