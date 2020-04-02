@@ -35,6 +35,7 @@ class MultiqcModule(BaseMultiqcModule):
 
         # Find and load any somalier reports
         self.somalier_data = dict()
+        self.somalier_background_pcs = dict()
         self.somalier_ancestry_cats = list()
         self.somalier_length_counts = dict()
         self.somalier_length_exp = dict()
@@ -67,7 +68,7 @@ class MultiqcModule(BaseMultiqcModule):
                         self.somalier_data[s_name] = parsed_data[s_name]
 
         # parse somalier ancestry files
-        for f in self.find_log_files('somalier/somalier_ancestry', filehandles=True):
+        for f in self.find_log_files('somalier/somalier-ancestry', filehandles=True):
             self.parse_somalier_ancestry(f)
 
         # Filter to strip out ignored sample names
@@ -209,7 +210,7 @@ class MultiqcModule(BaseMultiqcModule):
             # check that something was parsed:
             if len(parsed_data) > 0:
                 # add background principal components
-                self.somalier_data["background_pcs"] = {"PC1":bg_pc1, "PC2":bg_pc2, "ancestry":bg_ancestry}
+                self.somalier_background_pcs["background_pcs"] = {"PC1":bg_pc1, "PC2":bg_pc2, "ancestry":bg_ancestry}
                 
                 # cycle over keys, i.e. sample names
                 # safely add new data to object data
@@ -418,20 +419,24 @@ class MultiqcModule(BaseMultiqcModule):
         c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
         cats = OrderedDict()
         anc_cats = self.somalier_ancestry_cats
-
-        for i in range(len(anc_cats)):
-            c = anc_cats[i]
-            if i < (len(c_scale) - 1):
-                col = c_scale[i]
-            else:
-                # default col if more cats than cols
-                col = 'rgb(211,211,211,0.01)'
-            cats[c] = {'name' : c, 'color' : col}
+        
+        # use Paired color scale, unless number of categories exceed colors
+        if (len(anc_cats) <= len(c_scale)):
+            for i in range(len(anc_cats)):
+                c = anc_cats[i]
+                if i < (len(c_scale) - 1):
+                    col = c_scale[i]
+                else:
+                    # default col if more cats than cols
+                    col = 'rgb(211,211,211,0.5)'
+                cats[c] = {'name' : c, 'color' : col}
+        else:
+            cats = None
 
         for s_name, d in self.somalier_data.items():
             # ensure that only relevant items are added, 
             # i.e. only ancestry category values
-            ls = {k:v for k,v in d.items() if (k in self.somalier_ancestry_cats) and (len(v) > 0)}
+            ls = {k:v for k,v in d.items() if (k in self.somalier_ancestry_cats)}
             if len(ls) > 0: # only add dict, if it contains values
                 data[s_name] = ls
 
@@ -469,13 +474,13 @@ class MultiqcModule(BaseMultiqcModule):
 
         # add background
         # N.B. this must be done after samples to have samples on top
-        d = self.somalier_data.pop("background_pcs", {})
+        d = self.somalier_background_pcs.pop("background_pcs", {})
         if d:
             # generate color scale to match the number of categories
             c_scale = mqc_colour.mqc_colour_scale(name="Paired").colours
             cats = self.somalier_ancestry_cats
             ancestry_colors = dict(zip(cats, c_scale[:len(cats)]))
-            default_background_color = 'rgb(211,211,211,0.01)'
+            default_background_color = 'rgb(255,192,203,1)'
 
             background = [{'x': pc1,
                         'y': pc2,
